@@ -39,6 +39,3 @@ Each uploaded file generates a **unique share code**, enabling other users to **
 4. The recipient enters the **share code** in the access form to **download the file**.  
 
 Simple. Secure. Fast. ⚡
-
-# 4. Start the server
-node index.js
