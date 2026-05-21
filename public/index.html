@@ -53,7 +53,11 @@
 
             <div class="loading" id="uploadLoading" style="display: none;">
                 <div class="spinner"></div>
-                <p>Uploading...</p>
+                <p id="uploadStatusText">Uploading...</p>
+                <div style="width: 100%; max-width: 420px; height: 10px; background: rgba(255,255,255,0.18); border-radius: 999px; overflow: hidden; margin-top: 10px;">
+                    <div id="uploadProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #2ecc71, #3498db); transition: width 0.2s ease;"></div>
+                </div>
+                <p id="uploadProgressText" style="margin-top: 8px; font-size: 0.95rem;">0%</p>
             </div>
 
             <div id="uploadMessage"></div>
@@ -166,6 +170,9 @@
         const uploadBtn = document.getElementById('uploadBtn');
         const dashboardBtn = document.getElementById('dashboardBtn');
         const uploadLoading = document.getElementById('uploadLoading');
+        const uploadStatusText = document.getElementById('uploadStatusText');
+        const uploadProgressBar = document.getElementById('uploadProgressBar');
+        const uploadProgressText = document.getElementById('uploadProgressText');
         const uploadMessage = document.getElementById('uploadMessage');
         const resultSection = document.getElementById('resultSection');
         const shareLinkInput = document.getElementById('shareLinkInput');
@@ -182,6 +189,86 @@
         const downloadLoading = document.getElementById('downloadLoading');
         const downloadMessage = document.getElementById('downloadMessage');
         const fileInfo = document.getElementById('fileInfo');
+        const CHUNK_SIZE = 5 * 1024 * 1024;
+
+        function createUploadId() {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+                return window.crypto.randomUUID();
+            }
+
+            return `upload_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        }
+
+        function setUploadProgress(percent, label) {
+            const safePercent = Math.max(0, Math.min(100, percent));
+            uploadProgressBar.style.width = `${safePercent}%`;
+            uploadProgressText.textContent = `${Math.round(safePercent)}%`;
+
+            if (label) {
+                uploadStatusText.textContent = label;
+            }
+        }
+
+        async function uploadFileChunked(file, headers) {
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            const fileId = createUploadId();
+
+            setUploadProgress(0, `Uploading ${totalChunks} chunks...`);
+
+            for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+                const start = chunkIndex * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+
+                const formData = new FormData();
+                formData.append('chunk', chunk, file.name);
+                formData.append('chunkIndex', String(chunkIndex));
+                formData.append('totalChunks', String(totalChunks));
+                formData.append('fileId', fileId);
+                formData.append('originalFileName', file.name);
+
+                const chunkResponse = await fetch(`${API_BASE}/api/upload/chunk`, {
+                    method: 'POST',
+                    headers,
+                    body: formData
+                });
+
+                const chunkResult = await chunkResponse.json().catch(() => ({}));
+
+                if (!chunkResponse.ok) {
+                    throw new Error(chunkResult.error || `Chunk ${chunkIndex + 1} failed to upload.`);
+                }
+
+                const percent = ((chunkIndex + 1) / totalChunks) * 100;
+                setUploadProgress(percent, `Uploaded chunk ${chunkIndex + 1} of ${totalChunks}`);
+            }
+
+            setUploadProgress(100, 'Merging file on server...');
+
+            const mergeResponse = await fetch(`${API_BASE}/api/upload/merge`, {
+                method: 'POST',
+                headers: {
+                    ...headers,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    fileId,
+                    originalFileName: file.name,
+                    totalChunks,
+                    code: uploadCodeInput.value || undefined,
+                    password: filePasswordInput.value || undefined,
+                    expiration: expirationSelect.value
+                })
+            });
+
+            const mergeResult = await mergeResponse.json().catch(() => ({}));
+
+            if (!mergeResponse.ok) {
+                throw new Error(mergeResult.error || 'File merge failed on server.');
+            }
+
+            return mergeResult;
+        }
 
 
         // Initialize app
@@ -252,13 +339,12 @@
             const file = e.target.files[0];
             
             if (file) {
-                if (file.size > 20 * 1024 * 1024) { // 20MB
-                    fileText.innerHTML = `<span style="color: #e74c3c;">❌ File too large (max 20MB)</span>`;
-                    e.target.value = ''; // Clear the selection
-                    return;
-                }
                 const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
-                fileText.innerHTML = `<span style="color: #2ecc71;">✅ ${file.name} (${sizeInMB} MB)</span>`;
+                if (file.size > 20 * 1024 * 1024) {
+                    fileText.innerHTML = `<span style="color: #2ecc71;">✅ ${file.name} (${sizeInMB} MB) - chunked upload enabled</span>`;
+                } else {
+                    fileText.innerHTML = `<span style="color: #2ecc71;">✅ ${file.name} (${sizeInMB} MB)</span>`;
+                }
             } else {
                 fileText.innerHTML = 'Click to select file (max 20MB)';
             }
@@ -277,55 +363,62 @@
             uploadLoading.style.display = 'block';
             uploadMessage.innerHTML = '';
             resultSection.style.display = 'none';
+            setUploadProgress(0, 'Preparing upload...');
 
             try {
-                const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
-                if (uploadCodeInput.value) {
-                    formData.append('code', uploadCodeInput.value);
-                }
-                if (filePasswordInput.value) {
-                    formData.append('password', filePasswordInput.value);
-                }
-                formData.append('expiration', expirationSelect.value);
-
-               // ✅ Fixed — include token if present
                 const headers = {};
                 if (authToken) {
                     headers['Authorization'] = `Bearer ${authToken}`;
                 }
 
-                const response = await fetch(`${API_BASE}/api/upload`, {
-                    method: 'POST',
-                    headers,
-                    body: formData
-                });
+                const selectedFile = fileInput.files[0];
+                let result;
 
-                const result = await response.json();
+                if (selectedFile.size <= 20 * 1024 * 1024) {
+                    const formData = new FormData();
+                    formData.append('file', selectedFile);
+                    if (uploadCodeInput.value) {
+                        formData.append('code', uploadCodeInput.value);
+                    }
+                    if (filePasswordInput.value) {
+                        formData.append('password', filePasswordInput.value);
+                    }
+                    formData.append('expiration', expirationSelect.value);
 
-                if (response.ok) {
-                    // Show success message and result
-                    showMessage(uploadMessage, `✅ ${result.message}`, 'success');
-                    
-                    // Show result section
-                    shareLinkInput.value = result.downloadUrl;
-                    qrCode.src = result.qrCode;
-                    resultSection.style.display = 'block';
-                    
-                    // Scroll to result section
-                    resultSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    const response = await fetch(`${API_BASE}/api/upload`, {
+                        method: 'POST',
+                        headers,
+                        body: formData
+                    });
 
-                    // Reset form after a delay
-                    setTimeout(() => {
-                        uploadForm.reset();
-                        fileText.innerHTML = 'Click to select file (max 20MB)';
-                    }, 100);
+                    result = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(result.error || 'An unknown error occurred.');
+                    }
+
+                    setUploadProgress(100, 'Upload complete');
                 } else {
-                    showMessage(uploadMessage, `❌ ${result.error || 'An unknown error occurred.'}`, 'error');
+                    result = await uploadFileChunked(selectedFile, headers);
                 }
+
+                showMessage(uploadMessage, `✅ ${result.message || 'File uploaded successfully.'}`, 'success');
+
+                shareLinkInput.value = result.downloadUrl;
+                qrCode.src = result.qrCode;
+                resultSection.style.display = 'block';
+
+                resultSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                setTimeout(() => {
+                    uploadForm.reset();
+                    fileText.innerHTML = 'Click to select file (max 20MB)';
+                    setUploadProgress(0, 'Uploading...');
+                }, 100);
             } catch (error) {
                 console.error('Upload error:', error);
-                showMessage(uploadMessage, '❌ Upload failed. Check server connection.', 'error');
+                showMessage(uploadMessage, `❌ Upload failed. ${error.message || 'Check server connection.'}`, 'error');
+                setUploadProgress(0, 'Upload failed');
             } finally {
                 uploadBtn.disabled = false;
                 uploadLoading.style.display = 'none';
