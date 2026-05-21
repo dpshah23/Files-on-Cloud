@@ -52,12 +52,24 @@
             </form>
 
             <div class="loading" id="uploadLoading" style="display: none;">
-                <div class="spinner"></div>
-                <p id="uploadStatusText">Uploading...</p>
-                <div style="width: 100%; max-width: 420px; height: 10px; background: rgba(255,255,255,0.18); border-radius: 999px; overflow: hidden; margin-top: 10px;">
-                    <div id="uploadProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #2ecc71, #3498db); transition: width 0.2s ease;"></div>
+                <div class="upload-progress-card" role="status" aria-live="polite" aria-label="File upload progress">
+                    <div class="upload-progress-header">
+                        <div class="upload-progress-copy">
+                            <span class="upload-progress-kicker">Upload status</span>
+                            <p id="uploadStatusText" class="upload-progress-state">Uploading...</p>
+                        </div>
+                        <div class="spinner" aria-hidden="true"></div>
+                    </div>
+
+                    <div class="upload-progress-track" aria-hidden="true">
+                        <div id="uploadProgressBar" class="upload-progress-fill"></div>
+                    </div>
+
+                    <div class="upload-progress-meta">
+                        <span id="uploadProgressText" class="upload-progress-percent">0%</span>
+                        <span id="uploadProgressSize" class="upload-progress-size">0 MB / 0 MB</span>
+                    </div>
                 </div>
-                <p id="uploadProgressText" style="margin-top: 8px; font-size: 0.95rem;">0%</p>
             </div>
 
             <div id="uploadMessage"></div>
@@ -173,6 +185,7 @@
         const uploadStatusText = document.getElementById('uploadStatusText');
         const uploadProgressBar = document.getElementById('uploadProgressBar');
         const uploadProgressText = document.getElementById('uploadProgressText');
+        const uploadProgressSize = document.getElementById('uploadProgressSize');
         const uploadMessage = document.getElementById('uploadMessage');
         const resultSection = document.getElementById('resultSection');
         const shareLinkInput = document.getElementById('shareLinkInput');
@@ -190,6 +203,11 @@
         const downloadMessage = document.getElementById('downloadMessage');
         const fileInfo = document.getElementById('fileInfo');
         const CHUNK_SIZE = 5 * 1024 * 1024;
+        let activeUploadFile = null;
+
+        function formatMB(bytes) {
+            return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+        }
 
         function createUploadId() {
             if (window.crypto && typeof window.crypto.randomUUID === 'function') {
@@ -207,11 +225,17 @@
             if (label) {
                 uploadStatusText.textContent = label;
             }
+
+            if (activeUploadFile) {
+                const uploadedBytes = Math.min(activeUploadFile.size, Math.round((safePercent / 100) * activeUploadFile.size));
+                uploadProgressSize.textContent = `${formatMB(uploadedBytes)} / ${formatMB(activeUploadFile.size)}`;
+            }
         }
 
         async function uploadFileChunked(file, headers) {
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             const fileId = createUploadId();
+            activeUploadFile = file;
 
             setUploadProgress(0, `Uploading ${totalChunks} chunks...`);
 
@@ -267,6 +291,7 @@
                 throw new Error(mergeResult.error || 'File merge failed on server.');
             }
 
+            setUploadProgress(100, 'Completed');
             return mergeResult;
         }
 
@@ -363,6 +388,8 @@
             uploadLoading.style.display = 'block';
             uploadMessage.innerHTML = '';
             resultSection.style.display = 'none';
+            activeUploadFile = fileInput.files[0];
+            uploadProgressSize.textContent = `${formatMB(0)} / ${formatMB(activeUploadFile.size)}`;
             setUploadProgress(0, 'Preparing upload...');
 
             try {
@@ -413,12 +440,18 @@
                 setTimeout(() => {
                     uploadForm.reset();
                     fileText.innerHTML = 'Click to select file (max 20MB)';
+                    activeUploadFile = null;
+                    uploadProgressSize.textContent = '0 MB / 0 MB';
+                    uploadStatusText.textContent = 'Uploading...';
+                    uploadProgressBar.style.width = '0%';
+                    uploadProgressText.textContent = '0%';
                     setUploadProgress(0, 'Uploading...');
                 }, 100);
             } catch (error) {
                 console.error('Upload error:', error);
                 showMessage(uploadMessage, `❌ Upload failed. ${error.message || 'Check server connection.'}`, 'error');
                 setUploadProgress(0, 'Upload failed');
+                uploadProgressSize.textContent = activeUploadFile ? `0 MB / ${formatMB(activeUploadFile.size)}` : '0 MB / 0 MB';
             } finally {
                 uploadBtn.disabled = false;
                 uploadLoading.style.display = 'none';

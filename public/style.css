@@ -1000,4 +1000,107 @@ body.modal-open {
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     font-size: 0.9rem;
-}
+}
+
+/* Upload Progress UI */
+.upload-progress-card {
+    width: 100%;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 1.25rem 1.35rem;
+    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(14, 18, 42, 0.95), rgba(18, 24, 52, 0.92));
+    border: 1px solid rgba(102, 126, 234, 0.28);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
+}
+
+.upload-progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.9rem;
+}
+
+.upload-progress-copy {
+    min-width: 0;
+}
+
+.upload-progress-kicker {
+    display: inline-block;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #8ea2ff;
+}
+
+.upload-progress-state {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #f2f4ff;
+    word-break: break-word;
+}
+
+.upload-progress-track {
+    width: 100%;
+    height: 12px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.upload-progress-fill {
+    width: 0%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #2ecc71 0%, #3498db 55%, #8e44ad 100%);
+    transition: width 0.22s ease;
+}
+
+.upload-progress-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.8rem;
+    font-size: 0.92rem;
+    color: #cfd6ff;
+}
+
+.upload-progress-percent {
+    font-weight: 800;
+    color: #ffffff;
+    min-width: 3rem;
+}
+
+.upload-progress-size {
+    text-align: right;
+    color: #aeb9ef;
+}
+
+@media (max-width: 768px) {
+    .upload-progress-card {
+        padding: 1rem;
+        border-radius: 16px;
+    }
+
+    .upload-progress-header,
+    .upload-progress-meta {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .upload-progress-meta {
+        gap: 0.35rem;
+        margin-top: 0.75rem;
+    }
+
+    .upload-progress-size {
+        text-align: left;
+    }
+}
