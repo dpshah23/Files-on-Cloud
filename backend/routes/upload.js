@@ -47,6 +47,28 @@ const upload = multer({
   fileFilter: fileFilter
 });
 
+// Multer instance for chunk uploads (stores incoming chunks in a transient folder,
+// then the route handler moves them into per-upload directories)
+const incomingTempDir = path.join(__dirname, '..', '..', 'uploads', 'temp', '_incoming');
+if (!fs.existsSync(incomingTempDir)) fs.mkdirSync(incomingTempDir, { recursive: true });
+
+const chunkStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(incomingTempDir)) fs.mkdirSync(incomingTempDir, { recursive: true });
+    cb(null, incomingTempDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = Date.now() + '-' + crypto.randomBytes(8).toString('hex') + path.extname(file.originalname || '');
+    cb(null, uniqueName);
+  }
+});
+
+const chunkUpload = multer({
+  storage: chunkStorage,
+  limits: { fileSize: 100 * 1024 * 1024 }, // per-chunk limit: 100MB (configurable)
+  fileFilter: fileFilter
+});
+
 // Helper function to generate unique code
 const generateCode = async () => {
   let code, exists = true;
@@ -125,6 +147,83 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     res.status(500).json({ error: 'Server error during file upload.' });
   }
 });
+
+  // Chunk upload route
+  // Receives: chunk (file), chunkIndex, totalChunks, fileId, originalFileName
+  // Temporarily stores chunks in uploads/temp/<fileId>/ as zero-padded part files
+  router.post('/upload/chunk', chunkUpload.single('chunk'), async (req, res) => {
+    try {
+      const { chunkIndex, totalChunks, fileId, originalFileName } = req.body || {};
+
+      // Basic validations
+      if (!req.file) {
+        return res.status(400).json({ error: 'No chunk file provided.' });
+      }
+
+      if (!fileId || typeof fileId !== 'string' || !/^[A-Za-z0-9\-_]+$/.test(fileId)) {
+        // cleanup incoming file
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Invalid or missing fileId. Use alphanumeric, -, or _.' });
+      }
+
+      const total = parseInt(totalChunks, 10);
+      const index = parseInt(chunkIndex, 10);
+      if (Number.isNaN(total) || total <= 0) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Invalid totalChunks value.' });
+      }
+      if (Number.isNaN(index) || index < 0 || index >= total) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: 'Invalid chunkIndex.' });
+      }
+
+      // Prepare destination folder for this upload
+      const destDir = path.join(__dirname, '..', '..', 'uploads', 'temp', fileId);
+      if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+      // Create zero-padded chunk filename
+      const padWidth = Math.max(3, String(total - 1).length);
+      const paddedIndex = String(index).padStart(padWidth, '0');
+      const destPath = path.join(destDir, `${paddedIndex}.part`);
+
+      const incomingPath = req.file.path;
+
+      // If a chunk already exists and sizes match, treat as already uploaded (idempotent)
+      if (fs.existsSync(destPath)) {
+        const existingStat = fs.statSync(destPath);
+        if (existingStat.size === req.file.size) {
+          // remove the incoming duplicate
+          await fs.promises.unlink(incomingPath);
+          return res.status(200).json({ success: true, fileId, chunkIndex: index, message: 'Chunk already exists.' });
+        }
+        // otherwise replace existing chunk
+        await fs.promises.unlink(destPath).catch(() => {});
+      }
+
+      // Move incoming chunk into final per-upload directory
+      await fs.promises.rename(incomingPath, destPath);
+
+      // Optionally persist metadata about the upload
+      const metaPath = path.join(destDir, 'meta.json');
+      const meta = {
+        originalFileName: originalFileName || '',
+        totalChunks: total,
+        createdAt: new Date().toISOString()
+      };
+      // Write or update meta.json (atomic write)
+      try {
+        await fs.promises.writeFile(metaPath, JSON.stringify(meta));
+      } catch (err) {
+        console.warn('Failed to write meta.json for chunk upload', err);
+      }
+
+      return res.status(201).json({ success: true, fileId, chunkIndex: index });
+    } catch (error) {
+      console.error('Chunk upload error:', error);
+      if (req.file && req.file.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+      return res.status(500).json({ error: 'Server error while receiving chunk.' });
+    }
+  });
 
 // Get file info route
 router.get('/info/:code', async (req, res) => {
