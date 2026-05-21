@@ -32,6 +32,7 @@ The project is structured as:
 ## 🚀 Features
 
 - 📤 File Upload – Upload files securely to the cloud
+- 🧩 Chunked Uploads – Support larger files by splitting them into 5 MB chunks
 - 🔗 File Sharing – Generate shareable download links
 - 📊 File Analytics – Track downloads, views, and usage statistics
 - 🔐 JWT Authentication – Secure login/signup with token-based auth
@@ -39,6 +40,29 @@ The project is structured as:
 - 📷 QR Code Generator – Instantly generate QR codes for file sharing
 - 🔒 File Password – Enable one extra security by adding password
 - 🌐 Responsive UI – Clean and modern interface across devices
+
+## 🧩 Chunked Upload Support
+
+Files-on-Cloud now supports chunked uploads for larger files while keeping the original single-request upload flow for files up to 20 MB.
+
+### Upload Flow
+
+1. The frontend splits the selected file into 5 MB chunks.
+2. Each chunk is uploaded sequentially to `POST /api/upload/chunk`.
+3. The backend stores chunks temporarily under `uploads/temp/<fileId>/`.
+4. After all chunks are uploaded, the frontend calls `POST /api/upload/merge`.
+5. The backend merges the chunks into the final file in `uploads/` and returns the usual share code and download link.
+
+### Chunked Upload APIs
+
+- `POST /api/upload/chunk` - Receives `chunk`, `chunkIndex`, `totalChunks`, `fileId`, and `originalFileName`
+- `POST /api/upload/merge` - Merges the uploaded chunks into the final file
+
+### Notes
+
+- The legacy `POST /api/upload` route still works for smaller files.
+- Chunk merging uses streams to keep memory usage low.
+- Temporary chunk files are removed after a successful merge.
 
 ---
 
