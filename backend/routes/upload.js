@@ -326,3 +326,163 @@ router.delete('/files/:code', auth, async (req, res) => {
 });
 
 module.exports = router;
+
+// Merge chunks route
+// Expects JSON body: { fileId, originalFileName, totalChunks, code?, password?, expiration? }
+router.post('/upload/merge', async (req, res) => {
+  try {
+    const { fileId, originalFileName, totalChunks } = req.body || {};
+
+    if (!fileId || typeof fileId !== 'string' || !/^[A-Za-z0-9\-_]+$/.test(fileId)) {
+      return res.status(400).json({ error: 'Invalid or missing fileId.' });
+    }
+
+    if (!originalFileName || typeof originalFileName !== 'string') {
+      return res.status(400).json({ error: 'Missing originalFileName.' });
+    }
+
+    const total = parseInt(totalChunks, 10);
+    if (Number.isNaN(total) || total <= 0) {
+      return res.status(400).json({ error: 'Invalid totalChunks.' });
+    }
+
+    const destDir = path.join(__dirname, '..', '..', 'uploads', 'temp', fileId);
+    if (!fs.existsSync(destDir)) {
+      return res.status(404).json({ error: 'Upload not found or already removed.' });
+    }
+
+    // Validate presence of all chunks
+    const padWidth = Math.max(3, String(total - 1).length);
+    const missing = [];
+    const chunkFiles = [];
+    for (let i = 0; i < total; i++) {
+      const name = String(i).padStart(padWidth, '0') + '.part';
+      const p = path.join(destDir, name);
+      if (!fs.existsSync(p)) missing.push(i);
+      else chunkFiles.push(p);
+    }
+
+    if (missing.length > 0) {
+      return res.status(400).json({ error: 'Missing chunks', missing });
+    }
+
+    // Acquire lock
+    const lockPath = path.join(destDir, 'lock');
+    try {
+      const lockHandle = await fs.promises.open(lockPath, 'wx');
+      await lockHandle.close();
+    } catch (err) {
+      return res.status(409).json({ error: 'Merge already in progress for this upload.' });
+    }
+
+    const mergeTmp = path.join(destDir, 'merge.tmp');
+
+    // Merge using streams sequentially
+    const writeStream = fs.createWriteStream(mergeTmp, { flags: 'w' });
+
+    try {
+      for (const chunkPath of chunkFiles) {
+        await new Promise((resolve, reject) => {
+          const readStream = fs.createReadStream(chunkPath);
+          readStream.on('error', (err) => reject(err));
+          readStream.on('end', () => resolve());
+          readStream.pipe(writeStream, { end: false });
+        });
+      }
+
+      // Close write stream and wait for finish
+      await new Promise((resolve, reject) => {
+        writeStream.end(() => {
+          writeStream.once('close', resolve);
+        });
+        writeStream.on('error', reject);
+      });
+
+      // Validate merged size equals sum of chunk sizes
+      let mergedStat;
+      try {
+        mergedStat = await fs.promises.stat(mergeTmp);
+      } catch (err) {
+        throw new Error('Merged file not found after merge.');
+      }
+
+      let totalSize = 0;
+      for (const p of chunkFiles) {
+        const st = await fs.promises.stat(p);
+        totalSize += st.size;
+      }
+
+      if (mergedStat.size !== totalSize) {
+        // Move to garbage for investigation
+        const garbageDir = path.join(__dirname, '..', '..', 'uploads', '.garbage');
+        if (!fs.existsSync(garbageDir)) fs.mkdirSync(garbageDir, { recursive: true });
+        const garbagePath = path.join(garbageDir, `${fileId}-${Date.now()}.tmp`);
+        await fs.promises.rename(mergeTmp, garbagePath).catch(() => {});
+        throw new Error('Merged file size mismatch.');
+      }
+
+      // Move merged file to final uploads directory
+      const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+      const finalName = crypto.randomBytes(16).toString('hex') + path.extname(originalFileName || '');
+      const finalPath = path.join(uploadsDir, finalName);
+      await fs.promises.rename(mergeTmp, finalPath);
+
+      // Create DB record similar to single-file upload flow
+      let { code, password, expiration } = req.body || {};
+      if (code) {
+        if (!/^\d{5}$/.test(code)) {
+          // cleanup final file
+          if (fs.existsSync(finalPath)) await fs.promises.unlink(finalPath).catch(() => {});
+          return res.status(400).json({ error: 'Code must be exactly 5 digits.' });
+        }
+        const existingFile = await FileRecord.findOne({ code });
+        if (existingFile) {
+          if (fs.existsSync(finalPath)) await fs.promises.unlink(finalPath).catch(() => {});
+          return res.status(409).json({ error: 'This code is already in use.' });
+        }
+      } else {
+        code = await generateCode();
+      }
+
+      const expiresAt = parseExpiration(expiration);
+
+      const newFileRecord = new FileRecord({
+        code,
+        originalName: originalFileName,
+        filename: finalName,
+        mimetype: 'application/octet-stream',
+        size: mergedStat.size,
+        password: password || undefined,
+        expiresAt,
+        uploadedBy: req.user ? req.user._id : null
+      });
+
+      await newFileRecord.save();
+
+      // Delete chunk folder
+      await fs.promises.rm(destDir, { recursive: true, force: true }).catch(() => {});
+
+      // Generate QR and download URL
+      const downloadUrl = `${req.protocol}://${req.get('host')}/download/${code}`;
+      const qrCodeDataURL = await QRCode.toDataURL(downloadUrl);
+
+      return res.status(201).json({ success: true, code, downloadUrl, qrCode: qrCodeDataURL, expiresAt: expiresAt.toISOString() });
+    } catch (err) {
+      // Ensure lock removed
+      try { await fs.promises.unlink(lockPath).catch(() => {}); } catch (e) {}
+      console.error('Merge error:', err);
+      return res.status(500).json({ error: 'Failed to merge chunks.', details: err.message });
+    }
+  } catch (error) {
+    console.error('Merge route error:', error);
+    return res.status(500).json({ error: 'Server error during merge.' });
+  } finally {
+    // best-effort remove lock if still present
+    const destDir = path.join(__dirname, '..', '..', 'uploads', 'temp', req.body?.fileId || '');
+    const lockPath = path.join(destDir, 'lock');
+    if (fs.existsSync(lockPath)) {
+      try { fs.unlinkSync(lockPath); } catch (e) {}
+    }
+  }
+});
