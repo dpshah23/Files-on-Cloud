@@ -168,6 +168,8 @@
 
     <script>
         const API_BASE = "";
+        const MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024;
+        const MAX_UPLOAD_SIZE_LABEL = '20MB';
 
         // Auth state
         let currentUser = null;
@@ -364,6 +366,14 @@
             const file = e.target.files[0];
             
             if (file) {
+<<<<<<< Updated upstream
+=======
+                if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+                    fileText.innerHTML = `<span style="color: #e74c3c;">❌ File too large (max ${MAX_UPLOAD_SIZE_LABEL})</span>`;
+                    e.target.value = '';
+                    return;
+                }
+>>>>>>> Stashed changes
                 const sizeInMB = (file.size / (1024 * 1024)).toFixed(2);
                 if (file.size > 20 * 1024 * 1024) {
                     fileText.innerHTML = `<span style="color: #2ecc71;">✅ ${file.name} (${sizeInMB} MB) - chunked upload enabled</span>`;
@@ -371,7 +381,7 @@
                     fileText.innerHTML = `<span style="color: #2ecc71;">✅ ${file.name} (${sizeInMB} MB)</span>`;
                 }
             } else {
-                fileText.innerHTML = 'Click to select file (max 20MB)';
+                fileText.innerHTML = `Click to select file (max ${MAX_UPLOAD_SIZE_LABEL})`;
             }
         });
 
@@ -418,6 +428,7 @@
                         body: formData
                     });
 
+<<<<<<< Updated upstream
                     result = await response.json();
 
                     if (!response.ok) {
@@ -425,6 +436,13 @@
                     }
 
                     setUploadProgress(100, 'Upload complete');
+=======
+                    // Reset form after a delay
+                    setTimeout(() => {
+                        uploadForm.reset();
+                        fileText.innerHTML = `Click to select file (max ${MAX_UPLOAD_SIZE_LABEL})`;
+                    }, 100);
+>>>>>>> Stashed changes
                 } else {
                     result = await uploadFileChunked(selectedFile, headers);
                 }

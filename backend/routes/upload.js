@@ -8,6 +8,7 @@ const FileRecord = require('../models/File');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
+const MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024;
 
 // File storage configuration
 const storage = multer.diskStorage({
@@ -43,10 +44,11 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit
+  limits: { fileSize: MAX_UPLOAD_SIZE_BYTES },
   fileFilter: fileFilter
 });
 
+<<<<<<< Updated upstream
 // Multer instance for chunk uploads (stores incoming chunks in a transient folder,
 // then the route handler moves them into per-upload directories)
 const incomingTempDir = path.join(__dirname, '..', '..', 'uploads', 'temp', '_incoming');
@@ -68,6 +70,31 @@ const chunkUpload = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // per-chunk limit: 100MB (configurable)
   fileFilter: fileFilter
 });
+=======
+const removeUploadedFile = (filePath) => {
+  if (filePath && fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+};
+
+const handleUploadMiddleware = (req, res, next) => {
+  upload.single('file')(req, res, (error) => {
+    if (!error) {
+      return next();
+    }
+
+    if (req.file) {
+      removeUploadedFile(req.file.path);
+    }
+
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({ error: 'File too large. Maximum upload size is 20MB.' });
+    }
+
+    return res.status(400).json({ error: error.message || 'Upload failed.' });
+  });
+};
+>>>>>>> Stashed changes
 
 // Helper function to generate unique code
 const generateCode = async () => {
@@ -92,7 +119,7 @@ const parseExpiration = (expiration) => {
 };
 
 // Upload file route
-router.post('/upload', upload.single('file'), async (req, res) => {
+router.post('/upload', handleUploadMiddleware, async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded.' });
@@ -101,12 +128,12 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     let { code, password, expiration } = req.body;
     if (code) {
       if (!/^\d{5}$/.test(code)) {
-        fs.unlinkSync(req.file.path);
+        removeUploadedFile(req.file.path);
         return res.status(400).json({ error: 'Code must be exactly 5 digits.' });
       }
       const existingFile = await FileRecord.findOne({ code });
       if (existingFile) {
-        fs.unlinkSync(req.file.path);
+        removeUploadedFile(req.file.path);
         return res.status(409).json({ error: 'This code is already in use.' });
       }
     } else {
@@ -143,7 +170,7 @@ router.post('/upload', upload.single('file'), async (req, res) => {
     });
   } catch (error) {
     console.error('Upload Error:', error);
-    if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    removeUploadedFile(req.file && req.file.path);
     res.status(500).json({ error: 'Server error during file upload.' });
   }
 });

@@ -510,6 +510,21 @@ button:disabled {
 
 /* Responsive Design */
 @media (max-width: 768px) {
+<<<<<<< Updated upstream
+=======
+    .header {
+        flex-direction: column;
+        padding: 1.5rem 1rem;
+    }
+
+    .header .auth-buttons {
+        position: static;
+        left: auto;
+        justify-content: center;
+        flex-wrap: wrap;
+    }
+
+>>>>>>> Stashed changes
     .header h1 {
         font-size: 2rem;
     }
@@ -529,8 +544,35 @@ button:disabled {
     .social-links {
         flex-direction: column;
         align-items: center;
+<<<<<<< Updated upstream
     }
 
+=======
+        gap: 1rem;
+    }
+
+    .link-container {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .link-container .copy-btn {
+        width: 100%;
+    }
+
+    .result-card,
+    .share-link-section,
+    .qr-section {
+        padding: 1rem;
+    }
+
+    .dashboard-table {
+        min-width: 520px;
+    }
+
+}
+
+>>>>>>> Stashed changes
 
 .message {
     padding: 1rem;
@@ -585,7 +627,11 @@ button:disabled {
     max-width: 420px;
     position: relative;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+<<<<<<< Updated upstream
     animation: slideIn 0.4s ease-out;
+=======
+    animation: authSlideIn 0.4s ease-out;
+>>>>>>> Stashed changes
     z-index: 10001;
 }
 
@@ -715,7 +761,11 @@ button:disabled {
     }
 }
 
+<<<<<<< Updated upstream
 @keyframes slideIn {
+=======
+@keyframes authSlideIn {
+>>>>>>> Stashed changes
     from {
         opacity: 0;
         transform: translateY(30px) scale(0.95);
@@ -733,7 +783,11 @@ button:disabled {
     border-radius: 20px;
     padding: 2.5rem;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+<<<<<<< Updated upstream
     animation: slideIn 0.4s ease;
+=======
+    animation: authSlideIn 0.4s ease;
+>>>>>>> Stashed changes
 }
 
 /* Body scroll lock */
@@ -902,6 +956,7 @@ body.modal-open {
     border-radius: 10px;
 }
 
+<<<<<<< Updated upstream
 @keyframes slideIn {
     from {
         opacity: 0;
@@ -913,6 +968,8 @@ body.modal-open {
     }
 }
 
+=======
+>>>>>>> Stashed changes
 /* Dashboard Styles */
 .dashboard-table-container {
     width: 100%;
@@ -1001,6 +1058,7 @@ body.modal-open {
     border: 1px solid rgba(255, 255, 255, 0.1);
     font-size: 0.9rem;
 }
+<<<<<<< Updated upstream
 
 /* Upload Progress UI */
 .upload-progress-card {
@@ -1104,3 +1162,5 @@ body.modal-open {
         text-align: left;
     }
 }
+=======
+>>>>>>> Stashed changes
